@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>BMI 噗噗星球</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<style>
+  :root{
+    --cream:#fffaf0; --mint:#b7f0d4; --peach:#ffd9c7; --sky:#cdeeff;
+    --lemon:#fff2a8; --coral:#ff8a7a;
+    --c-under:#8ec7ff; --c-normal:#5fd39a; --c-over:#ffcf5c; --c-obese:#ff7d7d;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; min-height:100vh; font-family:"M PLUS Rounded 1c","Noto Sans TC",sans-serif;
+    background:
+      radial-gradient(circle at 15% 20%, #fff 0 2px, transparent 3px) 0 0/60px 60px,
+      radial-gradient(circle at 70% 60%, #fff 0 2px, transparent 3px) 0 0/90px 90px,
+      linear-gradient(180deg, var(--sky), var(--cream) 60%, var(--peach));
+    color:#3a3a55; overflow-x:hidden;
+  }
+  .stars{position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5;
+    background-image: radial-gradient(2px 2px at 20% 30%, #fff, transparent),
+      radial-gradient(2px 2px at 80% 10%, #fff, transparent),
+      radial-gradient(1.5px 1.5px at 50% 80%, #fff, transparent),
+      radial-gradient(1.5px 1.5px at 90% 60%, #fff, transparent);
+    animation: drift 20s linear infinite;
+  }
+  @keyframes drift{ from{background-position:0 0,0 0,0 0,0 0;} to{background-position:0 -200px,0 -300px,0 -150px,0 -250px;} }
+  header{ text-align:center; padding:28px 16px 8px; position:relative; z-index:1;}
+  header h1{ font-size:2rem; margin:0; color:#ff7fa3; text-shadow:2px 2px 0 #fff;}
+  header p{ margin:4px 0 0; color:#7a7a9a;}
+  .wrap{ max-width:960px; margin:0 auto; padding:16px; position:relative; z-index:1;
+    display:grid; grid-template-columns:1fr 1fr; gap:24px;}
+  @media (max-width:800px){ .wrap{grid-template-columns:1fr;} }
+  .card{ background:#ffffffcc; border-radius:28px; padding:24px; box-shadow:0 12px 24px rgba(150,120,200,.15);
+    border:3px dashed #ffd0e0; position:relative;}
+  .mascot{ width:90px; height:90px; margin:0 auto 12px; position:relative;}
+  .mascot .helmet{ width:100%; height:100%; border-radius:50%; background:radial-gradient(circle at 35% 30%, #fff, #cdeeff 70%);
+    border:4px solid #fff; box-shadow:0 6px 14px rgba(0,0,0,.1); position:relative; overflow:hidden;}
+  .mascot .eye{ width:10px; height:14px; background:#3a3a55; border-radius:50%; position:absolute; top:38px;}
+  .mascot .eye.l{left:26px;} .mascot .eye.r{left:52px;}
+  .mascot .blush{ width:12px; height:8px; background:#ff9fb3; border-radius:50%; position:absolute; top:52px; opacity:.8;}
+  .mascot .blush.l{left:16px;} .mascot .blush.r{left:60px;}
+  label{ display:block; font-weight:700; margin:10px 0 4px; color:#5a5a7a;}
+  input{ width:100%; padding:12px 14px; border-radius:16px; border:2px solid #ffd0e0; font-size:1rem;
+    background:#fff; transition:.2s; outline:none;}
+  input:focus{ border-color:#ff9fc0; box-shadow:0 0 0 6px #ffe3ee;}
+  button{ margin-top:16px; width:100%; padding:14px; border:none; border-radius:20px; font-size:1.1rem; font-weight:800;
+    color:#fff; background:linear-gradient(135deg,#ff9fc0,#ffcf7f); cursor:pointer; box-shadow:0 8px 0 #e88aa8;
+    transition:transform .1s;}
+  button:active{ transform:translateY(6px); box-shadow:0 2px 0 #e88aa8;}
+  .result h2{ margin:0; text-align:center; font-size:.95rem; color:#7a7a9a;}
+  .bmi-num{ text-align:center; font-size:3rem; font-weight:900; color:#ff7fa3; margin:4px 0;}
+  .badge{ display:block; text-align:center; margin:0 auto 12px; padding:8px 18px; border-radius:999px;
+    font-weight:800; width:fit-content; color:#fff;}
+  .gauge-wrap{ position:relative; width:260px; margin:0 auto;}
+  #needle{ transition:none;}
+  .legend{ display:flex; justify-content:space-between; font-size:.75rem; color:#7a7a9a; margin-top:4px;}
+  canvas#historyChart{ max-height:220px;}
+  .hint{ font-size:.8rem; color:#9a9ab0; text-align:center; margin-top:8px;}
+
+  /* 周側飂浮屢：大量飛行圖標，深度由 D3 scale 推算大小/透明度。 */
+  #floatLayer{ position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden;}
+
+  /* 珝石环：环絕不斷旋轉，小星球緣版惱飛。 */
+  .orbit-ring{ position:absolute; top:50%; left:50%; width:130px; height:130px; margin:-65px 0 0 -65px;
+    animation:spin 6s linear infinite; pointer-events:none;}
+  .orbit-ring2{ width:170px; height:170px; margin:-85px 0 0 -85px; animation-duration:9s; animation-direction:reverse;}
+  .orbit-moon{ position:absolute; top:0; left:50%; transform:translateX(-50%); font-size:1.1rem;
+    filter:drop-shadow(0 0 4px #fff);}
+  @keyframes spin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+
+  .mascot{ animation:bob 3.2s ease-in-out infinite;}
+  @keyframes bob{ 0%,100%{transform:translateY(0) rotate(-2deg);} 50%{transform:translateY(-8px) rotate(2deg);} }
+
+  /* 給儀表卡片一點透視深度，配合 D3 的等角傍斜變換才會有 2.5D 感。 */
+  .gauge-wrap{ position:relative; width:260px; margin:0 auto; perspective:700px;}
+  #gaugeGroup{ transform-origin:150px 150px;}
+</style>
+</head>
+<body>
+<div class="stars"></div>
+<div id="floatLayer"></div>
+<header>
+  <h1>🚀 BMI 噗噗星球</h1>
+  <p>把每次健康掃描變成一場太空旅行</p>
+</header>
+<div class="wrap">
+  <div class="card" id="inputCard">
+    <div class="mascot" id="mascot">
+      <div class="orbit-ring"><div class="orbit-moon">🌟</div></div>
+      <div class="orbit-ring orbit-ring2"><div class="orbit-moon">💫</div></div>
+      <div class="helmet">
+        <div class="eye l"></div><div class="eye r"></div>
+        <div class="blush l"></div><div class="blush r"></div>
+      </div>
+    </div>
+    <label for="weight">體重（磅）</label>
+    <input type="number" id="weight" placeholder="例如 154" value="154">
+    <label for="height">身高（公尺）</label>
+    <input type="number" step="0.01" id="height" placeholder="例如 1.70" value="1.70">
+    <button id="launchBtn">🚀 啟動掃描</button>
+    <p class="hint">依台灣衛福部國健署成人健康體位標準分類</p>
+  </div>
+
+  <div class="card">
+    <div class="result">
+      <h2>你的 BMI 掃描結果</h2>
+      <div class="bmi-num" id="bmiNum">--</div>
+      <div class="badge" id="badge" style="background:#ccc;">尚未掃描</div>
+    </div>
+    <div class="gauge-wrap">
+      <svg viewBox="0 0 300 170" width="100%">
+        <g id="gaugeGroup">
+          <path id="track-under" fill="none" stroke-width="18" stroke-linecap="round"/>
+          <path id="track-normal" fill="none" stroke-width="18" stroke-linecap="round"/>
+          <path id="track-over" fill="none" stroke-width="18" stroke-linecap="round"/>
+          <path id="track-obese" fill="none" stroke-width="18" stroke-linecap="round"/>
+          <line id="needle" x1="150" y1="150" x2="150" y2="150" stroke="#ff7fa3" stroke-width="5" stroke-linecap="round"/>
+          <circle cx="150" cy="150" r="8" fill="#ff7fa3"/>
+          <text id="rocket" x="150" y="30" font-size="20" text-anchor="middle">🛰️</text>
+        </g>
+      </svg>
+      <div class="legend"><span>過輕</span><span>正常</span><span>過重</span><span>肥胖</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="grid-column:1 / -1;">
+    <h2 style="text-align:center; color:#7a7a9a; margin-top:0;">🛸 星際航線歷史紀錄</h2>
+    <canvas id="historyChart"></canvas>
+  </div>
+</div>
+
+<script>
+const THRESH = {under:18.5, normal:24, over:27};
+const COLORS = {under:'#8ec7ff', normal:'#5fd39a', over:'#ffcf5c', obese:'#ff7d7d'};
+const LABELS = {under:'過輕', normal:'正常', over:'過重', obese:'肥胖'};
+
+function calculateBmi(weightLb, heightM){
+  const kg = weightLb * 0.453592;
+  return kg / (heightM ** 2);
+}
+function classifyBmi(bmi){
+  if (bmi < THRESH.under) return 'under';
+  if (bmi < THRESH.normal) return 'normal';
+  if (bmi < THRESH.over) return 'over';
+  return 'obese';
+}
+
+const GMIN=10, GMAX=40, CX=150, CY=150, R=120;
+function angleForBmi(bmi){
+  const clamped = Math.min(GMAX, Math.max(GMIN, bmi));
+  return 180 - (clamped - GMIN) / (GMAX - GMIN) * 180;
+}
+function pointFor(angleDeg, radius){
+  const rad = angleDeg * Math.PI / 180;
+  return { x: CX + radius * Math.cos(rad), y: CY - radius * Math.sin(rad) };
+}
+function arcPath(bmiA, bmiB){
+  const a1 = angleForBmi(bmiA), a2 = angleForBmi(bmiB);
+  const p1 = pointFor(a1, R), p2 = pointFor(a2, R);
+  return `M ${p1.x} ${p1.y} A ${R} ${R} 0 0 1 ${p2.x} ${p2.y}`;
+}
+document.getElementById('track-under').setAttribute('d', arcPath(GMIN, THRESH.under));
+document.getElementById('track-under').setAttribute('stroke', COLORS.under);
+document.getElementById('track-normal').setAttribute('d', arcPath(THRESH.under, THRESH.normal));
+document.getElementById('track-normal').setAttribute('stroke', COLORS.normal);
+document.getElementById('track-over').setAttribute('d', arcPath(THRESH.normal, THRESH.over));
+document.getElementById('track-over').setAttribute('stroke', COLORS.over);
+document.getElementById('track-obese').setAttribute('d', arcPath(THRESH.over, GMAX));
+document.getElementById('track-obese').setAttribute('stroke', COLORS.obese);
+
+let needleState = { angle: 180 };
+function setNeedle(bmi, animate){
+  const target = angleForBmi(bmi);
+  const draw = () => {
+    const p = pointFor(needleState.angle, R - 20);
+    document.getElementById('needle').setAttribute('x2', p.x);
+    document.getElementById('needle').setAttribute('y2', p.y);
+    const rp = pointFor(needleState.angle, R + 15);
+    document.getElementById('rocket').setAttribute('x', rp.x);
+    document.getElementById('rocket').setAttribute('y', rp.y);
+  };
+  if (animate) {
+    gsap.to(needleState, { angle: target, duration: 1.1, ease: 'elastic.out(1,0.6)', onUpdate: draw });
+  } else {
+    needleState.angle = target; draw();
+  }
+}
+setNeedle(GMIN, false);
+
+const HISTORY_KEY = 'bmiHistory_conceptA';
+function loadHistory(){ try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch(e){ return []; } }
+function saveHistory(list){ localStorage.setItem(HISTORY_KEY, JSON.stringify(list)); }
+
+let chart;
+function renderChart(){
+  const history = loadHistory();
+  const ctx = document.getElementById('historyChart');
+  const data = {
+    labels: history.map((h,i)=>`#${i+1}`),
+    datasets: [{
+      label: 'BMI', data: history.map(h=>h.bmi),
+      borderColor: '#ff7fa3', backgroundColor:'rgba(255,127,163,.15)', fill:true, tension:.35,
+      pointBackgroundColor: history.map(h=>COLORS[h.category]), pointRadius:6
+    }]
+  };
+  if (chart) { chart.data = data; chart.update(); }
+  else {
+    chart = new Chart(ctx, { type:'line', data, options:{ animation:{duration:900}, plugins:{legend:{display:false}},
+      scales:{ y:{ suggestedMin:10, suggestedMax:35 } } } });
+  }
+}
+renderChart();
+
+function countUp(el, target){
+  const obj = { v: 0 };
+  gsap.to(obj, { v: target, duration: 1.2, ease:'power2.out',
+    onUpdate: () => el.textContent = obj.v.toFixed(2) });
+}
+
+document.getElementById('launchBtn').addEventListener('click', () => {
+  const weight = parseFloat(document.getElementById('weight').value);
+  const height = parseFloat(document.getElementById('height').value);
+  if (!weight || !height) return;
+
+  gsap.fromTo('#launchBtn', {x:0}, {x:4, duration:.05, yoyo:true, repeat:5});
+  gsap.fromTo('#mascot', {rotate:-6}, {rotate:6, duration:.15, yoyo:true, repeat:3, transformOrigin:'50% 50%'});
+  flyRocket(document.getElementById('launchBtn'), document.getElementById('bmiNum'));
+  tiltGaugeReveal();
+
+  const bmi = calculateBmi(weight, height);
+  const category = classifyBmi(bmi);
+
+  const badge = document.getElementById('badge');
+  badge.textContent = LABELS[category];
+  badge.style.background = COLORS[category];
+
+  countUp(document.getElementById('bmiNum'), bmi);
+  setNeedle(bmi, true);
+
+  const history = loadHistory();
+  history.push({ t: Date.now(), weight, height, bmi: Number(bmi.toFixed(2)), category });
+  saveHistory(history);
+  renderChart();
+
+  if (category === 'normal') {
+    confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 }, colors:['#ff9fc0','#ffe3a3','#a3f7c8'] });
+  }
+});
+
+// ---- D3.js 2.5D 效果區 --------------------------------------------------
+
+// 靜態等角傾斜：用仿射 skew + scale 讓量表看起來像放在傾斜桌面上（2.5D 景深）。
+d3.select('#gaugeGroup').attr('transform', 'skewX(-6) scale(1,0.94)');
+
+// 送出結果時，用 d3.interpolateTransformCss 內插 transform 字串，
+// 讓量表卡片做一次「傾斜翻面再回正」的 2.5D 揭曉動畫。
+function tiltGaugeReveal(){
+  const wrap = d3.select('.gauge-wrap');
+  const flat = 'skewY(0deg) scale(1) rotateX(0deg)';
+  const tilted = 'skewY(-4deg) scale(1.05) rotateX(8deg)';
+  wrap.style('transform-style', 'preserve-3d');
+  wrap.transition().duration(650)
+    .styleTween('transform', () => d3.interpolateTransformCss(flat, tilted))
+    .transition().duration(650)
+    .styleTween('transform', () => d3.interpolateTransformCss(tilted, flat));
+}
+
+// 周邊飄浮 emoji：用 d3.scaleLinear 把隨機「深度」映射成大小/透明度/飛行速度，
+// 製造近大快、遠小慢的 2.5D 視差效果；實際位移仍由 GSAP 補間。
+const floatLayer = document.getElementById('floatLayer');
+const FLOAT_EMOJIS = ['⭐','✨','🪐','☁️','🌙','💫','🛸','🎈'];
+const depthToScale = d3.scaleLinear().domain([0, 1]).range([0.6, 1.6]);
+const depthToOpacity = d3.scaleLinear().domain([0, 1]).range([0.25, 0.85]);
+const depthToDuration = d3.scaleLinear().domain([0, 1]).range([26, 12]);
+
+function spawnFloaty(){
+  const depth = Math.random(); // 0 = 遠景, 1 = 近景
+  const el = document.createElement('div');
+  el.textContent = FLOAT_EMOJIS[Math.floor(Math.random()*FLOAT_EMOJIS.length)];
+  el.style.cssText = `position:absolute; font-size:22px; opacity:${depthToOpacity(depth)};
+    transform:scale(${depthToScale(depth)}); will-change:transform; filter:blur(${(1-depth)*1.2}px);`;
+  floatLayer.appendChild(el);
+  const fly = () => {
+    const startX = Math.random()*window.innerWidth;
+    const endX = Math.random()*window.innerWidth;
+    gsap.set(el, { x:startX, y:window.innerHeight+40, rotate: Math.random()*360 });
+    gsap.to(el, {
+      x:endX, y:-60, rotate:`+=${180+Math.random()*360}`,
+      duration: depthToDuration(depth), ease:'none', onComplete: fly
+    });
+  };
+  fly();
+}
+for (let i=0; i<16; i++) spawnFloaty();
+
+// 小火箭從發射按鈕飛向結果數字，沿途灑落拖尾粒子帶出轉場。
+// 用兩段式補間（起點→中繼高點→終點）模擬弧線飛行，避免依賴額外的 GSAP 外掛。
+function flyRocket(fromEl, toEl){
+  const fr = fromEl.getBoundingClientRect();
+  const tr = toEl.getBoundingClientRect();
+  const rocket = document.createElement('div');
+  rocket.textContent = '🚀';
+  rocket.style.cssText = 'position:fixed; font-size:28px; z-index:40; pointer-events:none; left:0; top:0;';
+  document.body.appendChild(rocket);
+  const startX = fr.left + fr.width/2, startY = fr.top;
+  const midX = (fr.left+tr.left)/2, midY = Math.min(fr.top, tr.top) - 140;
+  const endX = tr.left + tr.width/2, endY = tr.top + tr.height/2;
+  const pos = { x:startX, y:startY };
+  gsap.set(rocket, { x:pos.x, y:pos.y, rotate:-90 });
+  const spark = () => {
+    if (Math.random() < .35) {
+      confetti({ particleCount:2, startVelocity:3, spread:30, ticks:35, gravity:.4,
+        origin:{ x:pos.x/window.innerWidth, y:pos.y/window.innerHeight }, colors:['#ffd9c7','#ff9fc0','#fff2a8'] });
+    }
+  };
+  gsap.timeline({ onComplete: () => rocket.remove() })
+    .to(pos, { x:midX, y:midY, duration:.55, ease:'power1.out',
+      onUpdate(){ gsap.set(rocket, { x:pos.x, y:pos.y }); spark(); } })
+    .to(rocket, { rotate:0, duration:.2 }, '<')
+    .to(pos, { x:endX, y:endY, duration:.55, ease:'power1.in',
+      onUpdate(){ gsap.set(rocket, { x:pos.x, y:pos.y }); spark(); } });
+}
+
+// 磁吸按鈕：滑鼠靠近時輕輕追隨游標。
+const launchBtn = document.getElementById('launchBtn');
+launchBtn.addEventListener('mousemove', (e) => {
+  const r = launchBtn.getBoundingClientRect();
+  gsap.to(launchBtn, { x:(e.clientX-r.left-r.width/2)*.25, y:(e.clientY-r.top-r.height/2)*.5, duration:.3 });
+});
+launchBtn.addEventListener('mouseleave', () => gsap.to(launchBtn, { x:0, y:0, duration:.5, ease:'elastic.out(1,0.4)' }));
+
+// 卡片進場動畫與滑鼠懸浮傾斜互動。
+gsap.from('.card', { y:60, opacity:0, duration:.9, stagger:.15, ease:'back.out(1.4)' });
+document.querySelectorAll('.card').forEach(card => {
+  card.addEventListener('mousemove', (e) => {
+    const r = card.getBoundingClientRect();
+    const px = (e.clientX - r.left)/r.width - .5, py = (e.clientY - r.top)/r.height - .5;
+    gsap.to(card, { rotateY: px*6, rotateX: -py*6, transformPerspective:600, duration:.4 });
+  });
+  card.addEventListener('mouseleave', () => gsap.to(card, { rotateX:0, rotateY:0, duration:.6 }));
+});
+</script>
+</body>
+</html>
